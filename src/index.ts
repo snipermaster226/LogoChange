@@ -1,12 +1,21 @@
 import { findByProps } from "@vendetta/metro";
-import { before } from "@vendetta/patcher";
-import { showToast } from "@vendetta/ui/toasts";
-import { getAssetIDByName } from "@vendetta/ui/assets";
+import { before, after } from "@vendetta/patcher";
 import { logger } from "@vendetta";
+import { React } from "@vendetta/metro/common";
+import { findInReactTree } from "@vendetta/utils";
+import { getAssetIDByName } from "@vendetta/ui/assets";
+import { showToast } from "@vendetta/ui/toasts";
 
+const ActionSheet = findByProps("openLazy", "hideActionSheet");
+const { ActionSheetRow } = findByProps("ActionSheetRow");
 const RestAPI = findByProps("get", "post", "del", "patch");
 const GuildStore = findByProps("getGuild");
 const UserStore = findByProps("getCurrentUser");
+
+const ImageIcon =
+    getAssetIDByName("ic_image") ??
+    getAssetIDByName("ImageIcon") ??
+    getAssetIDByName("ic_image_24px");
 
 const MANAGE_GUILD = 1n << 5n;
 
@@ -25,7 +34,7 @@ function hasManageGuild(guildId: string): boolean {
         }
         return false;
     } catch (e) {
-        logger.warn("[ServerIcon] Permission check failed:", e);
+        logger.warn("[ServerIcon] Permission check failed: " + String(e));
         return true;
     }
 }
@@ -42,21 +51,19 @@ async function imageUrlToBase64(url: string): Promise<string> {
 }
 
 async function setServerIcon(guildId: string, imageUrl: string) {
-    showToast("Updating server icon...", getAssetIDByName("ic_upload_24px"));
+    showToast("Updating server icon...");
     try {
         const base64 = await imageUrlToBase64(imageUrl);
         await RestAPI.patch({
             url: `/guilds/${guildId}`,
             body: { icon: base64 },
         });
-        showToast("✅ Server icon updated!", getAssetIDByName("check"));
+        showToast("✅ Server icon updated!");
     } catch (err) {
-        logger.error("[ServerIcon] Failed to update icon:", err);
-        showToast("❌ Failed to update server icon.", getAssetIDByName("failure-header"));
+        logger.log("[ServerIcon] Failed to update icon: " + String(err));
+        showToast("❌ Failed to update server icon.");
     }
 }
-
-let patches: (() => void)[] = [];
 
 function getImageFromMessage(message: any): string | null {
     const attachment = message?.attachments?.find((a: any) =>
@@ -70,53 +77,62 @@ function getImageFromMessage(message: any): string | null {
     return null;
 }
 
+let unpatchOpenLazy: (() => void) | null = null;
+
 export default {
     onLoad() {
-        const ActionSheetUtils =
-            findByProps("showMessageOptionsSheet") ??
-            findByProps("showSimpleActionSheet");
+        unpatchOpenLazy = before("openLazy", ActionSheet, ([comp, args, msg]) => {
+            if (args !== "MessageLongPressActionSheet" || !msg?.message) return;
 
-        if (!ActionSheetUtils) {
-            logger.warn("[ServerIcon] Action sheet module not found.");
-            return;
-        }
-
-        const methodName = ActionSheetUtils.showMessageOptionsSheet
-            ? "showMessageOptionsSheet"
-            : "showSimpleActionSheet";
-
-        const unpatch = before(methodName, ActionSheetUtils, (args: any[]) => {
-            const opts: any = args[0];
-            if (!opts?.options) return;
-
-            const message = opts.message ?? opts.options?.[0]?.message;
-            if (!message) return;
-
+            const message = msg.message;
             const guildId: string = message.guild_id;
             if (!guildId) return;
 
             const imageUrl = getImageFromMessage(message);
             if (!imageUrl) return;
 
-            opts.options.push({
-                label: "Set as Server Icon",
-                action: () => {
-                    if (!hasManageGuild(guildId)) {
-                        showToast("You need the Manage Server permission to do this.", getAssetIDByName("failure-header"));
+            comp.then((instance: any) => {
+                const unpatch = after("default", instance, (_: any, component: any) => {
+                    React.useEffect(() => () => { unpatch(); }, []);
+
+                    const groups: any[] = findInReactTree(
+                        component,
+                        (c: any) => Array.isArray(c) && c[0]?.type?.name === "ActionSheetRowGroup"
+                    );
+
+                    if (!groups?.length) {
+                        logger.warn("[ServerIcon] Could not find ActionSheetRowGroups");
                         return;
                     }
-                    setServerIcon(guildId, imageUrl);
-                },
+
+                    const setIconButton = React.createElement(ActionSheetRow, {
+                        label: "Set as Server Icon",
+                        icon: React.createElement(ActionSheetRow.Icon, {
+                            source: ImageIcon,
+                        }),
+                        onPress: () => {
+                            ActionSheet.hideActionSheet();
+                            if (!hasManageGuild(guildId)) {
+                                showToast("You need the Manage Server permission to do this.");
+                                return;
+                            }
+                            setServerIcon(guildId, imageUrl);
+                        },
+                    });
+
+                    groups.splice(0, 0,
+                        React.createElement(ActionSheetRow.Group, null, setIconButton)
+                    );
+                });
             });
         });
 
-        patches.push(unpatch);
         logger.log("[ServerIcon] Loaded.");
     },
 
     onUnload() {
-        for (const unpatch of patches) unpatch();
-        patches = [];
+        unpatchOpenLazy?.();
+        unpatchOpenLazy = null;
         logger.log("[ServerIcon] Unloaded.");
     },
 };
