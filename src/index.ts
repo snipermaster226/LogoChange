@@ -11,6 +11,7 @@ const { ActionSheetRow } = findByProps("ActionSheetRow");
 const RestAPI = findByProps("get", "post", "del", "patch");
 const GuildStore = findByProps("getGuild");
 const UserStore = findByProps("getCurrentUser");
+const ChannelStore = findByProps("getChannel");
 
 const ImageIcon =
     getAssetIDByName("ic_image") ??
@@ -70,41 +71,26 @@ function getImageFromMessage(message: any): string | null {
     return null;
 }
 
+function resolveGuildId(message: any): string | null {
+    if (message.guild_id) return message.guild_id;
+    const channel = ChannelStore?.getChannel?.(message.channel_id);
+    return channel?.guild_id ?? null;
+}
+
 let unpatchOpenLazy: (() => void) | null = null;
 
 export default {
     onLoad() {
-        if (!ActionSheet) logger.warn("[ServerIcon] ActionSheet module NOT FOUND");
-        if (!ActionSheetRow) logger.warn("[ServerIcon] ActionSheetRow NOT FOUND");
-
         unpatchOpenLazy = before("openLazy", ActionSheet, ([comp, args, msg]) => {
-            logger.log("[ServerIcon] openLazy fired with args=" + String(args));
-
-            if (args !== "MessageLongPressActionSheet") {
-                logger.log("[ServerIcon] Skipped — wrong sheet type: " + String(args));
-                return;
-            }
-            if (!msg?.message) {
-                logger.log("[ServerIcon] Skipped — no message in payload");
-                return;
-            }
+            if (args !== "MessageLongPressActionSheet" || !msg?.message) return;
 
             const message = msg.message;
-            logger.log("[ServerIcon] guild_id=" + message.guild_id + " attachments=" + JSON.stringify(message.attachments)?.slice(0, 300));
-
-            const guildId: string = message.guild_id;
-            if (!guildId) {
-                logger.log("[ServerIcon] Skipped — no guild_id (DM)");
-                return;
-            }
+            const guildId = resolveGuildId(message);
+            logger.log("[ServerIcon] resolved guild_id=" + guildId);
+            if (!guildId) return;
 
             const imageUrl = getImageFromMessage(message);
-            if (!imageUrl) {
-                logger.log("[ServerIcon] Skipped — no image found on message");
-                return;
-            }
-
-            logger.log("[ServerIcon] Image found, patching action sheet: " + imageUrl);
+            if (!imageUrl) return;
 
             comp.then((instance: any) => {
                 const unpatch = after("default", instance, (_: any, component: any) => {
@@ -114,13 +100,7 @@ export default {
                         component,
                         (c: any) => Array.isArray(c) && c[0]?.type?.name === "ActionSheetRowGroup"
                     );
-
-                    if (!groups?.length) {
-                        logger.warn("[ServerIcon] Could not find ActionSheetRowGroups");
-                        return;
-                    }
-
-                    logger.log("[ServerIcon] Found " + groups.length + " groups, inserting button");
+                    if (!groups?.length) return;
 
                     const setIconButton = React.createElement(ActionSheetRow, {
                         label: "Set as Server Icon",
