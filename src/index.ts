@@ -46,7 +46,17 @@ export default {
     onLoad() {
         storage.overrides ??= {};
 
-        // Patch the long-press action sheet to add our option
+        // --- TEMPORARY DISCOVERY LOGGING ---
+        const IconUtils = findByProps("getGuildIconURL");
+        if (IconUtils) {
+            logger.log("[ServerIcon] Found IconUtils.getGuildIconURL!");
+        } else {
+            logger.warn("[ServerIcon] getGuildIconURL NOT found, trying alternatives...");
+            const alt = findByProps("getGuildIconUrl");
+            logger.log("[ServerIcon] getGuildIconUrl alt found: " + !!alt);
+        }
+        // --- END DISCOVERY LOGGING ---
+
         unpatchOpenLazy = before("openLazy", ActionSheet, ([comp, args, msg]) => {
             if (args !== "MessageLongPressActionSheet" || !msg?.message) return;
 
@@ -81,12 +91,10 @@ export default {
             });
         });
 
-        // Patch GuildStore.getGuild to inject our fake icon into the guild object
         unpatchGuildIcon = after("getGuild", GuildStore, (args: any[], guild: any) => {
             if (!guild) return guild;
             const override = storage.overrides?.[guild.id];
             if (override) {
-                // Mutate a clone so we don't corrupt the real cached object
                 return { ...guild, icon: override, __localIconOverride: true, __localIconUrl: override };
             }
             return guild;
