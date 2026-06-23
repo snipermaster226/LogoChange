@@ -9,8 +9,8 @@ import { storage } from "@vendetta/plugin";
 
 const ActionSheet = findByProps("openLazy", "hideActionSheet");
 const { ActionSheetRow } = findByProps("ActionSheetRow");
-const GuildStore = findByProps("getGuild");
 const ChannelStore = findByProps("getChannel");
+const IconUtils = findByProps("getGuildIconURL");
 
 const ImageIcon =
     getAssetIDByName("ic_image") ??
@@ -40,22 +40,11 @@ function setLocalIcon(guildId: string, imageUrl: string) {
 }
 
 let unpatchOpenLazy: (() => void) | null = null;
-let unpatchGuildIcon: (() => void) | null = null;
+let unpatchIconUrl: (() => void) | null = null;
 
 export default {
     onLoad() {
         storage.overrides ??= {};
-
-        // --- TEMPORARY DISCOVERY LOGGING ---
-        const IconUtils = findByProps("getGuildIconURL");
-        if (IconUtils) {
-            logger.log("[ServerIcon] Found IconUtils.getGuildIconURL!");
-        } else {
-            logger.warn("[ServerIcon] getGuildIconURL NOT found, trying alternatives...");
-            const alt = findByProps("getGuildIconUrl");
-            logger.log("[ServerIcon] getGuildIconUrl alt found: " + !!alt);
-        }
-        // --- END DISCOVERY LOGGING ---
 
         unpatchOpenLazy = before("openLazy", ActionSheet, ([comp, args, msg]) => {
             if (args !== "MessageLongPressActionSheet" || !msg?.message) return;
@@ -91,23 +80,43 @@ export default {
             });
         });
 
-        unpatchGuildIcon = after("getGuild", GuildStore, (args: any[], guild: any) => {
-            if (!guild) return guild;
-            const override = storage.overrides?.[guild.id];
-            if (override) {
-                return { ...guild, icon: override, __localIconOverride: true, __localIconUrl: override };
-            }
-            return guild;
-        });
+        // Patch the actual icon URL builder — this is what fixes the blank icon
+        if (IconUtils?.getGuildIconURL) {
+            unpatchIconUrl = before("getGuildIconURL", IconUtils, (args: any[]) => {
+                // First arg is usually { id, icon, ... } guild-like object
+                const guildLike = args[0];
+                const guildId = guildLike?.id ?? guildLike?.guild_id;
+                const override = guildId ? storage.overrides?.[guildId] : null;
+
+                if (override) {
+                    // Short-circuit by mutating args so the real function still runs
+                    // but we intercept the return via "instead" pattern below instead
+                }
+            });
+
+            // Use instead-style override: wrap so we can return early
+            const original = IconUtils.getGuildIconURL;
+            IconUtils.getGuildIconURL = function (...args: any[]) {
+                const guildLike = args[0];
+                const guildId = guildLike?.id ?? guildLike?.guild_id;
+                const override = guildId ? storage.overrides?.[guildId] : null;
+                if (override) return override;
+                return original.apply(this, args);
+            };
+
+            unpatchIconUrl = () => {
+                IconUtils.getGuildIconURL = original;
+            };
+        }
 
         logger.log("[ServerIcon] Loaded.");
     },
 
     onUnload() {
         unpatchOpenLazy?.();
-        unpatchGuildIcon?.();
+        unpatchIconUrl?.();
         unpatchOpenLazy = null;
-        unpatchGuildIcon = null;
+        unpatchIconUrl = null;
         logger.log("[ServerIcon] Unloaded.");
     },
 };
