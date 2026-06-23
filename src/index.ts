@@ -23,10 +23,8 @@ function hasManageGuild(guildId: string): boolean {
     try {
         const guild = GuildStore?.getGuild?.(guildId);
         if (!guild) return false;
-
         const currentUser = UserStore?.getCurrentUser?.();
         if (guild.ownerId === currentUser?.id || guild.owner_id === currentUser?.id) return true;
-
         const PermissionStore = findByProps("getGuildPermissions");
         const perms = PermissionStore?.getGuildPermissions?.(guildId);
         if (typeof perms === "bigint" || typeof perms === "number") {
@@ -54,10 +52,7 @@ async function setServerIcon(guildId: string, imageUrl: string) {
     showToast("Updating server icon...");
     try {
         const base64 = await imageUrlToBase64(imageUrl);
-        await RestAPI.patch({
-            url: `/guilds/${guildId}`,
-            body: { icon: base64 },
-        });
+        await RestAPI.patch({ url: `/guilds/${guildId}`, body: { icon: base64 } });
         showToast("✅ Server icon updated!");
     } catch (err) {
         logger.log("[ServerIcon] Failed to update icon: " + String(err));
@@ -70,10 +65,8 @@ function getImageFromMessage(message: any): string | null {
         a?.content_type?.startsWith("image/") || /\.(png|jpe?g|webp|gif)$/i.test(a?.url ?? "")
     );
     if (attachment?.url) return attachment.url;
-
     const embed = message?.embeds?.find((e: any) => e?.image?.url || e?.thumbnail?.url);
     if (embed) return embed.image?.url ?? embed.thumbnail?.url;
-
     return null;
 }
 
@@ -81,15 +74,37 @@ let unpatchOpenLazy: (() => void) | null = null;
 
 export default {
     onLoad() {
+        if (!ActionSheet) logger.warn("[ServerIcon] ActionSheet module NOT FOUND");
+        if (!ActionSheetRow) logger.warn("[ServerIcon] ActionSheetRow NOT FOUND");
+
         unpatchOpenLazy = before("openLazy", ActionSheet, ([comp, args, msg]) => {
-            if (args !== "MessageLongPressActionSheet" || !msg?.message) return;
+            logger.log("[ServerIcon] openLazy fired with args=" + String(args));
+
+            if (args !== "MessageLongPressActionSheet") {
+                logger.log("[ServerIcon] Skipped — wrong sheet type: " + String(args));
+                return;
+            }
+            if (!msg?.message) {
+                logger.log("[ServerIcon] Skipped — no message in payload");
+                return;
+            }
 
             const message = msg.message;
+            logger.log("[ServerIcon] guild_id=" + message.guild_id + " attachments=" + JSON.stringify(message.attachments)?.slice(0, 300));
+
             const guildId: string = message.guild_id;
-            if (!guildId) return;
+            if (!guildId) {
+                logger.log("[ServerIcon] Skipped — no guild_id (DM)");
+                return;
+            }
 
             const imageUrl = getImageFromMessage(message);
-            if (!imageUrl) return;
+            if (!imageUrl) {
+                logger.log("[ServerIcon] Skipped — no image found on message");
+                return;
+            }
+
+            logger.log("[ServerIcon] Image found, patching action sheet: " + imageUrl);
 
             comp.then((instance: any) => {
                 const unpatch = after("default", instance, (_: any, component: any) => {
@@ -105,11 +120,11 @@ export default {
                         return;
                     }
 
+                    logger.log("[ServerIcon] Found " + groups.length + " groups, inserting button");
+
                     const setIconButton = React.createElement(ActionSheetRow, {
                         label: "Set as Server Icon",
-                        icon: React.createElement(ActionSheetRow.Icon, {
-                            source: ImageIcon,
-                        }),
+                        icon: React.createElement(ActionSheetRow.Icon, { source: ImageIcon }),
                         onPress: () => {
                             ActionSheet.hideActionSheet();
                             if (!hasManageGuild(guildId)) {
@@ -120,9 +135,7 @@ export default {
                         },
                     });
 
-                    groups.splice(0, 0,
-                        React.createElement(ActionSheetRow.Group, null, setIconButton)
-                    );
+                    groups.splice(0, 0, React.createElement(ActionSheetRow.Group, null, setIconButton));
                 });
             });
         });
