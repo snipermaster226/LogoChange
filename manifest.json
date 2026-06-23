@@ -1,0 +1,14 @@
+{
+    "name": "ServerIcon",
+    "description": "Change the server icon using a slash command with an attached image.",
+    "authors": [
+        {
+            "name": "snipermaster226",
+            "id": "YOUR_DISCORD_ID"
+        }
+    ],
+    "main": "src/index.ts",
+    "vendetta": {
+        "icon": "ic_image_24px"
+    }
+}
