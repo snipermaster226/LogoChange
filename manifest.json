@@ -1,6 +1,6 @@
 {
-    "name": "ServerIcon",
-    "description": "Change the server icon using a slash command with an attached image.",
+    "name": "Revert Bloxd Logo",
+    "description": "Revert the Bloxd logo to the OG",
     "authors": [
         {
             "name": "snipermaster226",
