@@ -34,8 +34,10 @@ function resolveGuildId(message: any): string | null {
 }
 
 function setLocalIcon(guildId: string, imageUrl: string) {
+    logger.log("[ServerIcon] setLocalIcon CALLED guildId=" + guildId + " url=" + imageUrl);
     storage.overrides ??= {};
     storage.overrides[guildId] = imageUrl;
+    logger.log("[ServerIcon] storage.overrides now=" + JSON.stringify(storage.overrides));
     showToast("✅ Server icon changed locally!");
 }
 
@@ -70,6 +72,7 @@ export default {
                         label: "Set as Server Icon (Local Only)",
                         icon: React.createElement(ActionSheetRow.Icon, { source: ImageIcon }),
                         onPress: () => {
+                            logger.log("[ServerIcon] Button pressed! guildId=" + guildId);
                             ActionSheet.hideActionSheet();
                             setLocalIcon(guildId, imageUrl);
                         },
@@ -86,7 +89,6 @@ export default {
                 const guildLike = args[0];
                 const guildId = guildLike?.id ?? guildLike?.guild_id;
                 const override = guildId ? storage.overrides?.[guildId] : null;
-                logger.log("[ServerIcon] getGuildIconURL called, guildId=" + guildId + " hasOverride=" + !!override + " args0=" + JSON.stringify(guildLike)?.slice(0, 200));
                 if (override) return override;
                 return original.apply(this, args);
             };
