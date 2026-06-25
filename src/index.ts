@@ -80,26 +80,13 @@ export default {
             });
         });
 
-        // Patch the actual icon URL builder — this is what fixes the blank icon
         if (IconUtils?.getGuildIconURL) {
-            unpatchIconUrl = before("getGuildIconURL", IconUtils, (args: any[]) => {
-                // First arg is usually { id, icon, ... } guild-like object
-                const guildLike = args[0];
-                const guildId = guildLike?.id ?? guildLike?.guild_id;
-                const override = guildId ? storage.overrides?.[guildId] : null;
-
-                if (override) {
-                    // Short-circuit by mutating args so the real function still runs
-                    // but we intercept the return via "instead" pattern below instead
-                }
-            });
-
-            // Use instead-style override: wrap so we can return early
             const original = IconUtils.getGuildIconURL;
             IconUtils.getGuildIconURL = function (...args: any[]) {
                 const guildLike = args[0];
                 const guildId = guildLike?.id ?? guildLike?.guild_id;
                 const override = guildId ? storage.overrides?.[guildId] : null;
+                logger.log("[ServerIcon] getGuildIconURL called, guildId=" + guildId + " hasOverride=" + !!override + " args0=" + JSON.stringify(guildLike)?.slice(0, 200));
                 if (override) return override;
                 return original.apply(this, args);
             };
@@ -107,6 +94,8 @@ export default {
             unpatchIconUrl = () => {
                 IconUtils.getGuildIconURL = original;
             };
+        } else {
+            logger.warn("[ServerIcon] IconUtils.getGuildIconURL not found, cannot patch icon rendering.");
         }
 
         logger.log("[ServerIcon] Loaded.");
