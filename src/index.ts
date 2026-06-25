@@ -34,9 +34,9 @@ function resolveGuildId(message: any): string | null {
 }
 
 function setLocalIcon(guildId: string, imageUrl: string) {
-    logger.log("[ServerIcon] setLocalIcon CALLED guildId=" + guildId + " url=" + imageUrl);
     storage.overrides ??= {};
     storage.overrides[guildId] = imageUrl;
+    logger.log("[ServerIcon] setLocalIcon CALLED guildId=" + guildId + " url=" + imageUrl);
     logger.log("[ServerIcon] storage.overrides now=" + JSON.stringify(storage.overrides));
     showToast("✅ Server icon changed locally!");
 }
@@ -47,6 +47,12 @@ let unpatchIconUrl: (() => void) | null = null;
 export default {
     onLoad() {
         storage.overrides ??= {};
+
+        if (IconUtils) {
+            logger.log("[ServerIcon] IconUtils methods: " + Object.keys(IconUtils).join(", "));
+        } else {
+            logger.warn("[ServerIcon] IconUtils not found at all!");
+        }
 
         unpatchOpenLazy = before("openLazy", ActionSheet, ([comp, args, msg]) => {
             if (args !== "MessageLongPressActionSheet" || !msg?.message) return;
@@ -89,6 +95,7 @@ export default {
                 const guildLike = args[0];
                 const guildId = guildLike?.id ?? guildLike?.guild_id;
                 const override = guildId ? storage.overrides?.[guildId] : null;
+                logger.log("[ServerIcon] getGuildIconURL called, guildId=" + guildId + " hasOverride=" + !!override);
                 if (override) return override;
                 return original.apply(this, args);
             };
@@ -96,8 +103,6 @@ export default {
             unpatchIconUrl = () => {
                 IconUtils.getGuildIconURL = original;
             };
-        } else {
-            logger.warn("[ServerIcon] IconUtils.getGuildIconURL not found, cannot patch icon rendering.");
         }
 
         logger.log("[ServerIcon] Loaded.");
